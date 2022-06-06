@@ -1,4 +1,5 @@
-#유틸성 자바스크립트 파일에 대한 설명 document 페이지 데모 시스템
-#Vue.js Template 활용 및 prototype chain 을 활용하여 script 내 function 자체에 대한 정보를 렌더링 하도록 구현
-#단일 페이지에 / script 파일정리 및 data 추가만 이뤄지면 다른 작업없이 document가 작성되도록 구현
-#단일 기능에 대해서는 실행까지 가능하도록 개선
+# About JS Function Document Page
+1. .js 파일 내 function의 prototype chain 을 활용한 개발 진행 
+2. Vue.js 로 데이터 변화에만 UI가 변화하도록 Reactive UI 활용 
+3. 추가적인 다른 작업없이, js 파일 작성 및 index.html에서 load 하고, Vue Component의 데이터에 해당 util을 추가만 해주면 동작하도록 간소화
+
