@@ -33,9 +33,10 @@
                             <th scope="row">{{idx + 1}}</th>
                             <td>{{fun.prototype.id}}</td>
                             <td><pre>{{fun.toString()}}</pre></td>
-                            <td>{{fun.prototype.detail}}</td>
-                            <td><button @click=fun>실행</button></td>
-                        </tr>
+                            <td>{{fun.prototype.detail}}</td>                
+                            <td v-if="typeof fun.prototype.run === 'undefined'"><button @click=fun>실행</button></td>
+                            <td v-else><button @click="dynamicFunc(fun.prototype.run)">실행</button></td>
+                            </tr>
                     </template>
                     </tbody>
                 </table>
@@ -48,11 +49,12 @@
 
             // data 값 넣어주기
             data : {
-                        'funcMenu' : ['util','message'],
+                        'funcMenu' : ['util','message','api'],
                         'tableMenu' : ['#','아이디','구현','설명'],
                         'target' : getFuncList(util),
                         'util'  : getFuncList(util),
                         'message' : getFuncList(message),
+                        'api' : getFuncList(api),
             },
 
             template : template,
@@ -67,6 +69,12 @@
                         this.target.push(fun);
                     }
                 },
+
+                dynamicFunc(strFun){
+                    if(strFun != null && typeof strFun != 'undefined'){
+                        new Function(strFun)();
+                    }
+                }
             },
 
         });
