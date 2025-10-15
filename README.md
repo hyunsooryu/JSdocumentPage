@@ -1,5 +1,103 @@
-# About JS Function Document Page
-1. .js 파일 내 function의 prototype chain 을 활용한 개발 진행 
-2. Vue.js 로 데이터 변화에만 UI가 변화하도록 Reactive UI 활용 
-3. 추가적인 다른 작업없이, js 파일 작성 및 index.html에서 load 하고, Vue Component의 데이터에 해당 util을 추가만 해주면 동작하도록 간소화
-4.good
+ private static final String UPSERT_CFG_SCRIPT = String.join("\n",
+            "local cfgKey = KEYS[1]",
+            "local cap    = ARGV[1]",
+            "local ref    = ARGV[2]",
+            "local per    = ARGV[3]",
+            "local initT  = ARGV[4]",
+            "",
+            "local h = {}",
+            "if cap   and cap   ~= '' then table.insert(h, 'capacity');        table.insert(h, cap)   end",
+            "if ref   and ref   ~= '' then table.insert(h, 'refill_per_sec');  table.insert(h, ref)   end",
+            "if per   and per   ~= '' then table.insert(h, 'permits_per_req'); table.insert(h, per)   end",
+            "if initT and initT ~= '' then table.insert(h, 'init_tokens');     table.insert(h, initT) end",
+            "if #h > 0 then redis.call('HSET', cfgKey, unpack(h)) end",
+            "",
+            "return redis.call('HMGET', cfgKey, 'capacity','refill_per_sec','permits_per_req','init_tokens')"
+    );
+
+    private static final String INCR_SCRIPT = String.join("\n",
+            "local key = KEYS[1]",
+            "local cfgKey = KEYS[2]",
+
+            "local capacity       = tonumber(ARGV[1])",
+            "local refill_per_sec = tonumber(ARGV[2])",
+            "local permits        = tonumber(ARGV[3]) or 1",
+            "if not capacity or not refill_per_sec or capacity <= 0 or refill_per_sec <= 0 or permits <= 0 then",
+            "  return {0, 0, 1000}",
+            "end",
+
+            "local now_ms",
+            "if ARGV[4] then",
+            "  now_ms = tonumber(ARGV[4])",
+            "else",
+            "  local t = redis.call('TIME')",
+            "  now_ms = (tonumber(t[1]) * 1000) + math.floor(tonumber(t[2]) / 1000)",
+            "end",
+
+            "local init_tokens = tonumber(ARGV[5]) or capacity",
+            "if init_tokens < 0 then init_tokens = 0 end",
+            "if init_tokens > capacity then init_tokens = capacity end",
+
+            "-- state + cached config",
+            "local hm = redis.call('HMGET', key, 't','ts','cc','rr','cfg_ts')",
+            "local tokens  = tonumber(hm[1])",
+            "local last_ms = tonumber(hm[2])",
+            "local cc      = tonumber(hm[3])",
+            "local rr      = tonumber(hm[4])",
+            "local cfg_ts  = tonumber(hm[5])",
+
+            "-- 5초마다만 설정 해시에서 읽기; 해시에 없으면 cc/rr는 그대로(결국 ARGV 사용)",
+            "local need_refresh = (not cfg_ts) or ((now_ms - cfg_ts) >= 5000)",
+            "if need_refresh and cfgKey and cfgKey ~= '' then",
+            "  local c = redis.call('HMGET', cfgKey, 'capacity','refill_per_sec')",
+            "  if c[1] then cc = tonumber(c[1]) end",
+            "  if c[2] then rr = tonumber(c[2]) end",
+            "  cfg_ts = now_ms",
+            "end",
+
+            "-- 적용: 설정 해시 값이 있으면 그 값, 없으면 ARGV",
+            "if cc then capacity = cc end",
+            "if rr then refill_per_sec = rr end",
+
+            "if not tokens or not last_ms then",
+            "  tokens = init_tokens",
+            "  last_ms = now_ms",
+            "else",
+            "  local delta_ms = now_ms - last_ms",
+            "  if delta_ms > 0 then",
+            "    local refill = math.floor((delta_ms * refill_per_sec) / 1000)",
+            "    if refill > 0 then",
+            "      tokens = tokens + refill",
+            "      if tokens > capacity then tokens = capacity end",
+            "      local consumed_ms = math.floor((refill * 1000) / refill_per_sec)",
+            "      last_ms = last_ms + consumed_ms",
+            "    end",
+            "  end",
+            "end",
+
+            "local allowed = 0",
+            "local retry_after_ms = 0",
+            "if tokens >= permits then",
+            "  tokens = tokens - permits",
+            "  allowed = 1",
+            "else",
+            "  local need = permits - tokens",
+            "  retry_after_ms = math.ceil((need * 1000) / refill_per_sec)",
+            "end",
+
+            "-- 상태 + 캐시된 설정 타임스탬프만 저장 (설정 자체는 절대 쓰지 않음)",
+            "if cfg_ts then",
+            "  redis.call('HSET', key, 't', tokens, 'ts', last_ms, 'cc', cc or '', 'rr', rr or '', 'cfg_ts', cfg_ts)",
+            "else",
+            "  redis.call('HSET', key, 't', tokens, 'ts', last_ms)",
+            "end",
+
+            "-- 기존 동작 유지: 항상 PEXPIRE (retry_after에 따라 연장)",
+            "local ttl_ms = 120000",
+            "if allowed == 0 and (retry_after_ms + 10000) > ttl_ms then",
+            "  ttl_ms = retry_after_ms + 10000",
+            "end",
+            "redis.call('PEXPIRE', key, ttl_ms)",
+
+            "return {allowed, tokens, retry_after_ms}"
+    );
